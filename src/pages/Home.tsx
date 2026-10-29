@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ButtonLink, CheckIcon, Container, Heading, Logo, LockIcon } from "../components/ui";
 import { OFFERS, STORE, kitUnitCents, savingsCents } from "../config";
@@ -53,6 +53,20 @@ const FAQ = [
 function Gallery() {
   const [i, setI] = useState(0);
   const track = useRef<HTMLDivElement>(null);
+  const slides = useRef<(HTMLDivElement | null)[]>([]);
+  const [h, setH] = useState<number>();
+
+  // A altura da galeria acompanha a foto que está na tela (sem espaço em branco)
+  const measure = useCallback(() => {
+    const el = slides.current[i];
+    if (el) setH(el.offsetHeight);
+  }, [i]);
+  useEffect(() => {
+    measure();
+    const ro = new ResizeObserver(measure);
+    slides.current.forEach((el) => el && ro.observe(el));
+    return () => ro.disconnect();
+  }, [measure]);
 
   // Atualiza o contador conforme a pessoa arrasta a foto com o dedo
   const onScroll = () => {
@@ -69,9 +83,10 @@ function Gallery() {
   return (
     <div className="md:flex md:flex-row-reverse md:gap-3">
       <div className="relative min-w-0 flex-1 overflow-hidden bg-white md:rounded-md md:border md:border-line">
-        <div ref={track} onScroll={onScroll} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain">
+        <div ref={track} onScroll={onScroll} style={h ? { height: h } : undefined}
+          className="no-scrollbar flex snap-x snap-mandatory items-start overflow-x-auto overflow-y-hidden overscroll-x-contain transition-[height] duration-200">
           {PHOTOS.map((p, n) => (
-            <div key={p.src} className="w-full shrink-0 snap-center snap-always">
+            <div key={p.src} ref={(el) => { slides.current[n] = el; }} className="w-full shrink-0 snap-center snap-always">
               <img
                 src={p.src} alt={p.alt} width={p.w} height={p.h}
                 fetchPriority={n === 0 ? "high" : "auto"} loading={n === 0 ? "eager" : "lazy"} draggable={false}

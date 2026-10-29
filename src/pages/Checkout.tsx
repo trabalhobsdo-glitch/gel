@@ -33,6 +33,7 @@ export default function Checkout() {
   const [apiError, setApiError] = useState("");
   const [cepLoading, setCepLoading] = useState(false);
   const [step, setStep] = useState<Step>("form");
+  const [stage, setStage] = useState<1 | 2 | 3>(1);
   const [pix, setPix] = useState<PixData | null>(null);
   const [qrImg, setQrImg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -86,29 +87,48 @@ export default function Checkout() {
     return () => clearInterval(t);
   }, [step, pix]);
 
-  const validate = () => {
+  const STAGE_KEYS: Record<1 | 2, string[]> = {
+    1: ["cep", "street", "number", "neighborhood", "city", "state"],
+    2: ["name", "email", "cpf", "phone"],
+  };
+
+  const validate = (st: 1 | 2) => {
+    const all: Record<string, string> = {};
+    if (form.name.trim().split(/\s+/).length < 2) all.name = "Informe nome e sobrenome";
+    if (!/^\S+@\S+\.\S+$/.test(form.email)) all.email = "E-mail inválido";
+    if (!isValidCPF(form.cpf)) all.cpf = "CPF inválido";
+    if (onlyDigits(form.phone).length < 10) all.phone = "Telefone inválido";
+    if (onlyDigits(form.cep).length !== 8) all.cep = "CEP inválido";
+    if (!form.street.trim()) all.street = "Obrigatório";
+    if (!form.number.trim()) all.number = "Obrigatório";
+    if (!form.neighborhood.trim()) all.neighborhood = "Obrigatório";
+    if (!form.city.trim()) all.city = "Obrigatório";
+    if (form.state.length !== 2) all.state = "UF";
     const e: Record<string, string> = {};
-    if (form.name.trim().split(/\s+/).length < 2) e.name = "Informe nome e sobrenome";
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = "E-mail inválido";
-    if (!isValidCPF(form.cpf)) e.cpf = "CPF inválido";
-    if (onlyDigits(form.phone).length < 10) e.phone = "Telefone inválido";
-    if (onlyDigits(form.cep).length !== 8) e.cep = "CEP inválido";
-    if (!form.street.trim()) e.street = "Obrigatório";
-    if (!form.number.trim()) e.number = "Obrigatório";
-    if (!form.neighborhood.trim()) e.neighborhood = "Obrigatório";
-    if (!form.city.trim()) e.city = "Obrigatório";
-    if (form.state.length !== 2) e.state = "UF";
+    for (const k of STAGE_KEYS[st]) if (all[k]) e[k] = all[k];
     setErrors(e);
     return Object.keys(e).length === 0;
+  };
+
+  const goStage = (n: 1 | 2 | 3) => {
+    setStage(n);
+    setApiError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
     setApiError("");
-    if (!validate()) {
-      document.querySelector("[data-error='true']")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (stage !== 3) {
+      if (!validate(stage)) {
+        setTimeout(() => document.querySelector("[data-error='true']")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+        return;
+      }
+      goStage((stage + 1) as 2 | 3);
       return;
     }
+    if (!validate(1)) return goStage(1);
+    if (!validate(2)) return goStage(2);
     setLoading(true);
     try {
       const r = await fetch("/api/create-pix", {
@@ -167,12 +187,14 @@ export default function Checkout() {
       </div>
       <dl className="mt-5 space-y-2 border-t border-line pt-4 text-sm">
         <div className="flex justify-between"><dt>Subtotal</dt><dd className="font-semibold">{brl(offer.priceCents)}</dd></div>
-        <div className="flex justify-between"><dt>Frete ({ship.name})</dt><dd className="font-semibold">{brl(ship.priceCents)}</dd></div>
-        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(totalCents)}</dd></div>
+        {cepOk
+          ? <div className="flex justify-between"><dt>Frete ({ship.name})</dt><dd className="font-semibold">{brl(ship.priceCents)}</dd></div>
+          : <div className="flex justify-between text-ink/60"><dt>Frete</dt><dd>informe o CEP</dd></div>}
+        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(cepOk ? totalCents : offer.priceCents)}</dd></div>
       </dl>
       <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela HyperCash. Frete e prazo conforme informado na compra.</span></p>
     </aside>
-  ), [offer, ship, totalCents]);
+  ), [offer, ship, totalCents, cepOk]);
 
   return (
     <div className="min-h-screen bg-mint">
@@ -200,7 +222,7 @@ export default function Checkout() {
           <div className="mx-auto max-w-lg rounded-lg bg-white p-8 text-center shadow-sm">
             <h1 className="font-bold text-4xl text-forest">PIX expirado ou cancelado</h1>
             <p className="mt-3 text-ink/75">Não identificamos o pagamento. Você pode gerar um novo PIX.</p>
-            <button onClick={() => { setStep("form"); setPix(null); }} className="mt-6 w-full rounded-md bg-brand py-3 font-extrabold text-white">Gerar novo PIX</button>
+            <button onClick={() => { setStep("form"); setPix(null); setStage(3); }} className="mt-6 w-full rounded-md bg-brand py-3 font-extrabold text-white">Gerar novo PIX</button>
           </div>
         )}
 
@@ -227,75 +249,128 @@ export default function Checkout() {
         {step === "form" && (
           <form onSubmit={onSubmit} noValidate className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_340px]">
             <div className="space-y-6">
-              <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
-                <h2 className="font-bold text-2xl text-forest">1. Escolha a oferta</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {Object.values(OFFERS).map((o) => (
-                    <button type="button" key={o.id} onClick={() => navigate(`/checkout/${o.id}`, { replace: true })}
-                      className={`rounded-lg border-2 p-4 text-left transition ${current === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
-                      <p className="text-sm font-bold text-forest">{o.short}</p>
-                      <p className="font-bold text-3xl text-brand-dark">{brl(o.priceCents)}</p>
-                      {o.id === "kit-duplo" && <p className="text-xs font-bold text-brand-dark">Melhor custo-benefício</p>}
-                    </button>
-                  ))}
-                </div>
-              </section>
+              {/* Indicador de etapas */}
+              <ol className="flex items-center justify-between gap-2 rounded-lg bg-white p-4 shadow-sm" aria-label="Etapas da compra">
+                {([["Entrega", 1], ["Seus dados", 2], ["Pagamento", 3]] as const).map(([name, n]) => (
+                  <li key={n} className="flex flex-1 flex-col items-center gap-1 text-center" aria-current={stage === n ? "step" : undefined}>
+                    <span className={`grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold ${stage >= n ? "bg-brand text-white" : "bg-line text-ink/50"}`}>{stage > n ? "✓" : n}</span>
+                    <span className={`text-xs font-bold ${stage === n ? "text-forest" : "text-ink/50"}`}>{name}</span>
+                  </li>
+                ))}
+              </ol>
 
-              <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
-                <h2 className="font-bold text-2xl text-forest">2. Seus dados</h2>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {field("name", "Nome completo", { autoComplete: "name" }, "sm:col-span-2")}
-                  {field("email", "E-mail", { type: "email", autoComplete: "email", inputMode: "email" })}
-                  {field("phone", "Telefone / WhatsApp", { autoComplete: "tel", inputMode: "tel", placeholder: "(00) 00000-0000" })}
-                  {field("cpf", "CPF", { inputMode: "numeric", placeholder: "000.000.000-00" }, "sm:col-span-2")}
-                </div>
-              </section>
+              {stage === 1 && (
+                <>
+                  <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
+                    <h2 className="font-bold text-2xl text-forest">Sua oferta</h2>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {Object.values(OFFERS).map((o) => (
+                        <button type="button" key={o.id} onClick={() => navigate(`/checkout/${o.id}`, { replace: true })}
+                          className={`rounded-lg border-2 p-4 text-left transition ${current === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
+                          <p className="text-sm font-bold text-forest">{o.short}</p>
+                          <p className="font-bold text-3xl text-brand-dark">{brl(o.priceCents)}</p>
+                          {o.id === "kit-duplo" && <p className="text-xs font-bold text-brand-dark">Melhor custo-benefício</p>}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
 
-              <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
-                <h2 className="font-bold text-2xl text-forest">3. Endereço de entrega</h2>
-                <div className="mt-4 grid gap-4 sm:grid-cols-6">
-                  <div className="sm:col-span-2" data-error={!!errors.cep}>
-                    <label htmlFor="cep" className={label}>CEP {cepLoading && <span className="font-normal text-ink/50">buscando…</span>}</label>
-                    <input id="cep" value={form.cep} onChange={set("cep")} inputMode="numeric" autoComplete="postal-code" placeholder="00000-000" className={`${input} ${errors.cep ? "!border-red-500" : ""}`} />
-                    {errors.cep && <p className="mt-1 text-xs font-semibold text-red-600">{errors.cep}</p>}
+                  <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
+                    <h2 className="font-bold text-2xl text-forest">Para onde vamos enviar?</h2>
+                    <p className="mt-1 text-sm text-ink/60">Digite o CEP para ver as opções de frete.</p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-6">
+                      <div className="sm:col-span-3" data-error={!!errors.cep}>
+                        <label htmlFor="cep" className={label}>CEP {cepLoading && <span className="font-normal text-ink/50">buscando…</span>}</label>
+                        <input id="cep" value={form.cep} onChange={set("cep")} inputMode="numeric" autoComplete="postal-code" placeholder="00000-000" className={`${input} ${errors.cep ? "!border-red-500" : ""}`} />
+                        {errors.cep && <p className="mt-1 text-xs font-semibold text-red-600">{errors.cep}</p>}
+                      </div>
+                    </div>
+
+                    {cepOk && (
+                      <>
+                        <h3 className="mt-6 font-bold text-lg text-forest">Escolha o frete</h3>
+                        <div className="mt-3 space-y-3" role="radiogroup" aria-label="Opções de frete">
+                          {Object.values(SHIPPING).map((o) => (
+                            <label key={o.id}
+                              className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition sm:gap-4 sm:p-4 ${shipping === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
+                              <input type="radio" name="shipping" value={o.id} checked={shipping === o.id} onChange={() => setShipping(o.id)} className="h-5 w-5 shrink-0 accent-brand" />
+                              <img src="/images/correios.webp" alt="Correios" width={240} height={240} className="h-12 w-12 shrink-0 rounded object-contain" />
+                              <span className="flex-1 font-bold text-forest">{o.name}<span className="block text-xs font-normal text-ink/60">Correios · entrega em {o.days} úteis</span></span>
+                              <span className="font-bold text-xl text-brand-dark">{brl(o.priceCents)}</span>
+                            </label>
+                          ))}
+                        </div>
+
+                        <h3 className="mt-6 font-bold text-lg text-forest">Endereço de entrega</h3>
+                        <div className="mt-3 grid gap-4 sm:grid-cols-6">
+                          {field("street", "Rua / Avenida", { autoComplete: "address-line1" }, "sm:col-span-4")}
+                          <div className="sm:col-span-2" data-error={!!errors.number}>
+                            <label htmlFor="number" className={label}>Número</label>
+                            <input id="number" ref={numberRef} value={form.number} onChange={set("number")} className={`${input} ${errors.number ? "!border-red-500" : ""}`} />
+                            {errors.number && <p className="mt-1 text-xs font-semibold text-red-600">{errors.number}</p>}
+                          </div>
+                          {field("complement", "Complemento (opcional)", {}, "sm:col-span-6")}
+                          {field("neighborhood", "Bairro", {}, "sm:col-span-3")}
+                          {field("city", "Cidade", { autoComplete: "address-level2" }, "sm:col-span-2")}
+                          {field("state", "UF", { maxLength: 2, autoComplete: "address-level1" }, "sm:col-span-1")}
+                        </div>
+                      </>
+                    )}
+                  </section>
+                </>
+              )}
+
+              {stage === 2 && (
+                <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
+                  <h2 className="font-bold text-2xl text-forest">Seus dados</h2>
+                  <p className="mt-1 text-sm text-ink/60">Usamos para emitir o pedido e avisar sobre a entrega.</p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {field("name", "Nome completo", { autoComplete: "name" }, "sm:col-span-2")}
+                    {field("email", "E-mail", { type: "email", autoComplete: "email", inputMode: "email" })}
+                    {field("phone", "Telefone / WhatsApp", { autoComplete: "tel", inputMode: "tel", placeholder: "(00) 00000-0000" })}
+                    {field("cpf", "CPF", { inputMode: "numeric", placeholder: "000.000.000-00" }, "sm:col-span-2")}
                   </div>
-                  {field("street", "Rua / Avenida", { autoComplete: "address-line1" }, "sm:col-span-4")}
-                  <div className="sm:col-span-2" data-error={!!errors.number}>
-                    <label htmlFor="number" className={label}>Número</label>
-                    <input id="number" ref={numberRef} value={form.number} onChange={set("number")} className={`${input} ${errors.number ? "!border-red-500" : ""}`} />
-                    {errors.number && <p className="mt-1 text-xs font-semibold text-red-600">{errors.number}</p>}
-                  </div>
-                  {field("complement", "Complemento (opcional)", {}, "sm:col-span-4")}
-                  {field("neighborhood", "Bairro", {}, "sm:col-span-3")}
-                  {field("city", "Cidade", { autoComplete: "address-level2" }, "sm:col-span-2")}
-                  {field("state", "UF", { maxLength: 2, autoComplete: "address-level1" }, "sm:col-span-1")}
-                </div>
-              </section>
+                </section>
+              )}
 
-              {cepOk && (
-              <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
-                <h2 className="font-bold text-2xl text-forest">4. Escolha o frete</h2>
-                <div className="mt-4 space-y-3" role="radiogroup" aria-label="Opções de frete">
-                  {Object.values(SHIPPING).map((o) => (
-                    <label key={o.id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition sm:gap-4 sm:p-4 ${shipping === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
-                      <input type="radio" name="shipping" value={o.id} checked={shipping === o.id} onChange={() => setShipping(o.id)} className="h-5 w-5 shrink-0 accent-brand" />
-                      <img src="/images/correios.webp" alt="Correios" width={240} height={240} className="h-12 w-12 shrink-0 rounded object-contain" />
-                      <span className="flex-1 font-bold text-forest">{o.name}<span className="block text-xs font-normal text-ink/60">Correios · entrega em {o.days} úteis</span></span>
-                      <span className="font-bold text-xl text-brand-dark">{brl(o.priceCents)}</span>
-                    </label>
-                  ))}
-                </div>
-              </section>
+              {stage === 3 && (
+                <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
+                  <h2 className="font-bold text-2xl text-forest">Pagamento</h2>
+                  <p className="mt-1 text-sm text-ink/60">Confira os dados e pague com PIX. O QR Code é gerado na próxima tela.</p>
+                  <div className="mt-4 divide-y divide-line rounded-lg border border-line text-sm">
+                    <div className="flex items-start justify-between gap-3 p-4">
+                      <div>
+                        <p className="font-bold text-forest">Entrega · {ship.name} ({ship.days} úteis)</p>
+                        <p className="text-ink/70">{form.street}, {form.number}{form.complement ? ` – ${form.complement}` : ""}</p>
+                        <p className="text-ink/70">{form.neighborhood} · {form.city}/{form.state} · CEP {form.cep}</p>
+                      </div>
+                      <button type="button" onClick={() => goStage(1)} className="shrink-0 font-bold text-brand underline">Editar</button>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 p-4">
+                      <div>
+                        <p className="font-bold text-forest">{form.name}</p>
+                        <p className="text-ink/70">{form.email} · {form.phone}</p>
+                        <p className="text-ink/70">CPF {form.cpf}</p>
+                      </div>
+                      <button type="button" onClick={() => goStage(2)} className="shrink-0 font-bold text-brand underline">Editar</button>
+                    </div>
+                  </div>
+                  <p className="mt-4 flex items-center gap-2 rounded-md bg-mint p-3 text-sm font-semibold text-forest"><span aria-hidden>⚡</span> Pagamento por PIX: aprovação na hora.</p>
+                </section>
               )}
 
               {apiError && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-700">{apiError}</p>}
 
-              <button type="submit" disabled={loading}
-                className="w-full rounded-lg bg-brand py-4 text-lg font-extrabold tracking-wide text-white  transition hover:bg-brand-dark disabled:opacity-60">
-                {loading ? "Gerando PIX…" : `Pagar ${brl(offer.priceCents)} com PIX`}
-              </button>
-              <p className="text-center text-xs text-ink/55">Ao continuar você concorda com os <Link to="/legal/termos" className="underline">termos de compra</Link>.</p>
+              <div className="flex gap-3">
+                {stage > 1 && (
+                  <button type="button" onClick={() => goStage((stage - 1) as 1 | 2)} className="rounded-lg border-2 border-line bg-white px-5 py-4 font-bold text-forest hover:border-brand/50">Voltar</button>
+                )}
+                <button type="submit" disabled={loading}
+                  className="flex-1 rounded-lg bg-brand py-4 text-lg font-extrabold tracking-wide text-white transition hover:bg-brand-dark disabled:opacity-60">
+                  {stage === 3 ? (loading ? "Gerando PIX…" : `Pagar ${brl(totalCents)} com PIX`) : "Continuar"}
+                </button>
+              </div>
+              {stage === 3 && <p className="text-center text-xs text-ink/55">Ao continuar você concorda com os <Link to="/legal/termos" className="underline">termos de compra</Link>.</p>}
             </div>
             {summary}
           </form>

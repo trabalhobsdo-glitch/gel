@@ -22,7 +22,7 @@ export const kitUnitCents = OFFERS["kit-duplo"].priceCents / 2; // 6395
 // ⚠️ Os fretes também existem em api/create-pix.ts (o servidor é quem manda no valor cobrado).
 export type ShippingId = "pac" | "sedex";
 
-export const SHIPPING: Record<ShippingId, { id: ShippingId; name: string; priceCents: number }> = {
-  pac: { id: "pac", name: "PAC", priceCents: 990 },
-  sedex: { id: "sedex", name: "SEDEX", priceCents: 1850 },
+export const SHIPPING: Record<ShippingId, { id: ShippingId; name: string; priceCents: number; days: string }> = {
+  pac: { id: "pac", name: "PAC", priceCents: 990, days: "6 a 8 dias" },
+  sedex: { id: "sedex", name: "SEDEX", priceCents: 1850, days: "3 a 5 dias" },
 };

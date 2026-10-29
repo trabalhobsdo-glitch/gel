@@ -18,3 +18,11 @@ export const OFFERS: Record<OfferId, { id: OfferId; name: string; short: string;
 
 export const savingsCents = OFFERS.unitario.priceCents * 2 - OFFERS["kit-duplo"].priceCents; // 3190
 export const kitUnitCents = OFFERS["kit-duplo"].priceCents / 2; // 6395
+
+// ⚠️ Os fretes também existem em api/create-pix.ts (o servidor é quem manda no valor cobrado).
+export type ShippingId = "pac" | "sedex";
+
+export const SHIPPING: Record<ShippingId, { id: ShippingId; name: string; priceCents: number }> = {
+  pac: { id: "pac", name: "PAC", priceCents: 990 },
+  sedex: { id: "sedex", name: "SEDEX", priceCents: 1850 },
+};

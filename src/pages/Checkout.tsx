@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Container, LockIcon, Logo } from "../components/ui";
 import { OFFERS, SHIPPING, STORE, type OfferId, type ShippingId } from "../config";
@@ -19,7 +19,6 @@ const EMPTY = {
 
 export default function Checkout() {
   const { offerId } = useParams();
-  const navigate = useNavigate();
   const current: OfferId = offerId === "kit-duplo" ? "kit-duplo" : "unitario";
   const offer = OFFERS[current];
 
@@ -247,6 +246,11 @@ export default function Checkout() {
         )}
 
         {step === "form" && (
+          <img src="/images/checkout-banner.webp" alt="Blaster: diversão e aventura em cada tiro" width={1774} height={887}
+            className="mx-auto mb-6 block w-full max-w-5xl rounded-lg shadow-sm" />
+        )}
+
+        {step === "form" && (
           <form onSubmit={onSubmit} noValidate className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_340px]">
             <div className="space-y-6">
               {/* Indicador de etapas */}
@@ -261,20 +265,6 @@ export default function Checkout() {
 
               {stage === 1 && (
                 <>
-                  <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
-                    <h2 className="font-bold text-2xl text-forest">Sua oferta</h2>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {Object.values(OFFERS).map((o) => (
-                        <button type="button" key={o.id} onClick={() => navigate(`/checkout/${o.id}`, { replace: true })}
-                          className={`rounded-lg border-2 p-4 text-left transition ${current === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
-                          <p className="text-sm font-bold text-forest">{o.short}</p>
-                          <p className="font-bold text-3xl text-brand-dark">{brl(o.priceCents)}</p>
-                          {o.id === "kit-duplo" && <p className="text-xs font-bold text-brand-dark">Melhor custo-benefício</p>}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
                   <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
                     <h2 className="font-bold text-2xl text-forest">Para onde vamos enviar?</h2>
                     <p className="mt-1 text-sm text-ink/60">Digite o CEP para ver as opções de frete.</p>

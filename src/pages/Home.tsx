@@ -53,6 +53,11 @@ const FAQ = [
 function Gallery() {
   const [i, setI] = useState(0);
   const p = PHOTOS[i];
+  // Passa as fotos sozinha a cada 3 segundos (o tempo reinicia quando a pessoa troca a foto)
+  useEffect(() => {
+    const t = setTimeout(() => setI((n) => (n + 1) % PHOTOS.length), 3000);
+    return () => clearTimeout(t);
+  }, [i]);
   return (
     <div className="md:flex md:flex-row-reverse md:gap-3">
       <div className="relative flex-1 overflow-hidden bg-white md:rounded-md md:border md:border-line">

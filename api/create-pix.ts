@@ -7,6 +7,9 @@ const OFFERS: Record<string, { title: string; priceCents: number }> = {
   "kit-duplo": { title: "Kit com 2 Super M4 Blaster Elétrica de Gel", priceCents: 12790 },
 };
 
+// Mantenha em sincronia com src/config.ts
+const SHIPPING: Record<string, number> = { pac: 990, sedex: 1850 };
+
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -15,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const secret = process.env.HYPERCASH_SECRET_KEY;
   if (!secret) return res.status(500).json({ error: "Pagamento não configurado (HYPERCASH_SECRET_KEY ausente)." });
 
-  const { offerId, customer, address } = (req.body ?? {}) as any;
+  const { offerId, shipping, customer, address } = (req.body ?? {}) as any;
   const offer = OFFERS[offerId];
   if (!offer) return res.status(400).json({ error: "Oferta inválida." });
 
@@ -27,7 +30,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Preencha todos os dados obrigatórios." });
   }
 
-  const shippingFee = Math.max(0, parseInt(process.env.SHIPPING_FEE_CENTS ?? "0", 10) || 0);
+  const shippingFee = SHIPPING[shipping];
+  if (shippingFee === undefined) return res.status(400).json({ error: "Escolha uma opção de frete." });
   const amount = offer.priceCents + shippingFee;
   const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || "0.0.0.0";
   const site = (process.env.SITE_URL || `https://${req.headers.host}`).replace(/\/$/, "");
@@ -59,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     traceable: true,
     ip,
     postbackUrl: `${site}/api/webhook`,
-    metadata: { offerId },
+    metadata: { offerId, shipping },
     pix: { expiresInDays: 1 },
   };
 

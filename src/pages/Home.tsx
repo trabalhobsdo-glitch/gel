@@ -8,7 +8,7 @@ const UNIT = OFFERS.unitario;
 const KIT = OFFERS["kit-duplo"];
 
 const PHOTOS = [
-  { src: "/images/hero.webp", w: 622, h: 986, alt: "Crianças brincando com a Super M4 Blaster usando óculos de proteção" },
+  { src: "/images/hero.webp", w: 995, h: 1580, alt: "Crianças brincando com a Super M4 Blaster usando óculos de proteção" },
   { src: "/images/produto.webp", w: 1000, h: 997, alt: "Super M4 Blaster verde e branca ao lado da embalagem" },
   { src: "/images/closeup.webp", w: 1000, h: 998, alt: "Detalhe do cano, da mira e do tambor" },
   { src: "/images/detalhe.webp", w: 998, h: 1000, alt: "Super M4 Blaster sobre deck de madeira" },

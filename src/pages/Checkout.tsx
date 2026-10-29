@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { Link, useNavigate, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Container, LockIcon, Logo } from "../components/ui";
-import { OFFERS, STORE, type OfferId } from "../config";
+import { OFFERS, SHIPPING, STORE, type OfferId, type ShippingId } from "../config";
 import { brl, isValidCPF, maskCEP, maskCPF, maskPhone, onlyDigits } from "../lib/format";
 
 type PixData = { id: string; qrcode: string; expirationDate: string | null; amount: number };
@@ -24,6 +24,9 @@ export default function Checkout() {
   const offer = OFFERS[current];
 
   const [form, setForm] = useState(EMPTY);
+  const [shipping, setShipping] = useState<ShippingId>("pac");
+  const ship = SHIPPING[shipping];
+  const totalCents = offer.priceCents + ship.priceCents;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -112,6 +115,7 @@ export default function Checkout() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           offerId: current,
+          shipping,
           customer: { name: form.name, email: form.email, cpf: form.cpf, phone: form.phone },
           address: {
             cep: form.cep, street: form.street, number: form.number, complement: form.complement,
@@ -162,11 +166,12 @@ export default function Checkout() {
       </div>
       <dl className="mt-5 space-y-2 border-t border-line pt-4 text-sm">
         <div className="flex justify-between"><dt>Subtotal</dt><dd className="font-semibold">{brl(offer.priceCents)}</dd></div>
-        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(offer.priceCents)}</dd></div>
+        <div className="flex justify-between"><dt>Frete ({ship.name})</dt><dd className="font-semibold">{brl(ship.priceCents)}</dd></div>
+        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(totalCents)}</dd></div>
       </dl>
       <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela HyperCash. Frete e prazo conforme informado na compra.</span></p>
     </aside>
-  ), [offer]);
+  ), [offer, ship, totalCents]);
 
   return (
     <div className="min-h-screen bg-mint">
@@ -182,7 +187,7 @@ export default function Checkout() {
           <div className="mx-auto max-w-lg rounded-lg bg-white p-8 text-center shadow-sm">
             <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-brand text-4xl text-white">✓</div>
             <h1 className="mt-5 font-bold text-4xl text-forest">Pagamento confirmado!</h1>
-            <p className="mt-3 text-ink/75">Recebemos o seu PIX de <b>{brl(offer.priceCents)}</b>. Em breve você receberá as informações do pedido no e-mail <b>{form.email}</b>.</p>
+            <p className="mt-3 text-ink/75">Recebemos o seu PIX de <b>{brl(pix?.amount ?? totalCents)}</b>. Em breve você receberá as informações do pedido no e-mail <b>{form.email}</b>.</p>
             {STORE.whatsapp && (
               <a href={`https://wa.me/${STORE.whatsapp}`} className="mt-5 inline-block font-bold text-brand underline" target="_blank" rel="noreferrer">Falar com o atendimento</a>
             )}
@@ -263,6 +268,21 @@ export default function Checkout() {
                   {field("neighborhood", "Bairro", {}, "sm:col-span-3")}
                   {field("city", "Cidade", { autoComplete: "address-level2" }, "sm:col-span-2")}
                   {field("state", "UF", { maxLength: 2, autoComplete: "address-level1" }, "sm:col-span-1")}
+                </div>
+              </section>
+
+              <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
+                <h2 className="font-bold text-2xl text-forest">4. Escolha o frete</h2>
+                <div className="mt-4 space-y-3" role="radiogroup" aria-label="Opções de frete">
+                  {Object.values(SHIPPING).map((o) => (
+                    <label key={o.id}
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition sm:gap-4 sm:p-4 ${shipping === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
+                      <input type="radio" name="shipping" value={o.id} checked={shipping === o.id} onChange={() => setShipping(o.id)} className="h-5 w-5 shrink-0 accent-brand" />
+                      <img src="/images/correios.webp" alt="Correios" width={240} height={240} className="h-12 w-12 shrink-0 rounded object-contain" />
+                      <span className="flex-1 font-bold text-forest">{o.name}<span className="block text-xs font-normal text-ink/60">Envio pelos Correios</span></span>
+                      <span className="font-bold text-xl text-brand-dark">{brl(o.priceCents)}</span>
+                    </label>
+                  ))}
                 </div>
               </section>
 

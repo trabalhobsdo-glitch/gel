@@ -27,6 +27,7 @@ export default function Checkout() {
   const [shipping, setShipping] = useState<ShippingId>("pac");
   const ship = SHIPPING[shipping];
   const totalCents = offer.priceCents + ship.priceCents;
+  const cepOk = onlyDigits(form.cep).length === 8;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -271,6 +272,7 @@ export default function Checkout() {
                 </div>
               </section>
 
+              {cepOk && (
               <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
                 <h2 className="font-bold text-2xl text-forest">4. Escolha o frete</h2>
                 <div className="mt-4 space-y-3" role="radiogroup" aria-label="Opções de frete">
@@ -279,12 +281,13 @@ export default function Checkout() {
                       className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition sm:gap-4 sm:p-4 ${shipping === o.id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
                       <input type="radio" name="shipping" value={o.id} checked={shipping === o.id} onChange={() => setShipping(o.id)} className="h-5 w-5 shrink-0 accent-brand" />
                       <img src="/images/correios.webp" alt="Correios" width={240} height={240} className="h-12 w-12 shrink-0 rounded object-contain" />
-                      <span className="flex-1 font-bold text-forest">{o.name}<span className="block text-xs font-normal text-ink/60">Envio pelos Correios</span></span>
+                      <span className="flex-1 font-bold text-forest">{o.name}<span className="block text-xs font-normal text-ink/60">Correios · entrega em {o.days} úteis</span></span>
                       <span className="font-bold text-xl text-brand-dark">{brl(o.priceCents)}</span>
                     </label>
                   ))}
                 </div>
               </section>
+              )}
 
               {apiError && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-700">{apiError}</p>}
 

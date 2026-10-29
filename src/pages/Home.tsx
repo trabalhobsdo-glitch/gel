@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ButtonLink, CheckIcon, Container, Heading, Logo, LockIcon } from "../components/ui";
 import { OFFERS, STORE, kitUnitCents, savingsCents } from "../config";
@@ -52,25 +52,40 @@ const FAQ = [
 
 function Gallery() {
   const [i, setI] = useState(0);
-  const p = PHOTOS[i];
-  // Passa as fotos sozinha a cada 3 segundos (o tempo reinicia quando a pessoa troca a foto)
-  useEffect(() => {
-    const t = setTimeout(() => setI((n) => (n + 1) % PHOTOS.length), 3000);
-    return () => clearTimeout(t);
-  }, [i]);
+  const track = useRef<HTMLDivElement>(null);
+
+  // Atualiza o contador conforme a pessoa arrasta a foto com o dedo
+  const onScroll = () => {
+    const el = track.current;
+    if (!el) return;
+    const n = Math.round(el.scrollLeft / el.clientWidth);
+    if (n !== i) setI(Math.max(0, Math.min(PHOTOS.length - 1, n)));
+  };
+  const goTo = (n: number) => {
+    const el = track.current;
+    if (el) el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+  };
+
   return (
     <div className="md:flex md:flex-row-reverse md:gap-3">
-      <div className="relative flex-1 overflow-hidden bg-white md:rounded-md md:border md:border-line">
-        <img
-          key={p.src} src={p.src} alt={p.alt} width={p.w} height={p.h} fetchPriority="high"
-          className="mx-auto block max-h-[78svh] w-full object-contain md:max-h-[560px]"
-        />
-        <span className="absolute bottom-3 right-3 rounded bg-black/55 px-2 py-0.5 text-xs font-semibold text-white">{i + 1}/{PHOTOS.length}</span>
+      <div className="relative min-w-0 flex-1 overflow-hidden bg-white md:rounded-md md:border md:border-line">
+        <div ref={track} onScroll={onScroll} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain">
+          {PHOTOS.map((p, n) => (
+            <div key={p.src} className="w-full shrink-0 snap-center snap-always">
+              <img
+                src={p.src} alt={p.alt} width={p.w} height={p.h}
+                fetchPriority={n === 0 ? "high" : "auto"} loading={n === 0 ? "eager" : "lazy"} draggable={false}
+                className="mx-auto block max-h-[78svh] w-full object-contain md:max-h-[560px]"
+              />
+            </div>
+          ))}
+        </div>
+        <span className="pointer-events-none absolute bottom-3 right-3 rounded bg-black/55 px-2 py-0.5 text-xs font-semibold text-white">{i + 1}/{PHOTOS.length}</span>
       </div>
       <div className="no-scrollbar flex gap-2 overflow-x-auto bg-white px-4 py-3 md:flex-col md:overflow-visible md:bg-transparent md:p-0">
         {PHOTOS.map((t, n) => (
           <button
-            key={t.src} onClick={() => setI(n)} aria-label={`Ver foto ${n + 1}`} aria-current={n === i}
+            key={t.src} onClick={() => goTo(n)} aria-label={`Ver foto ${n + 1}`} aria-current={n === i}
             className={`h-14 w-14 shrink-0 overflow-hidden rounded border-2 bg-white md:h-16 md:w-16 ${n === i ? "border-brand" : "border-line"}`}
           >
             <img src={t.src} alt="" loading="lazy" className="h-full w-full object-cover" />

@@ -10,6 +10,11 @@ const OFFERS: Record<string, { title: string; priceCents: number }> = {
 // Mantenha em sincronia com src/config.ts
 const SHIPPING: Record<string, number> = { pac: 990, sedex: 1850 };
 
+const BUMPS: Record<string, { title: string; priceCents: number }> = {
+  bolinhas: { title: "15.000 Bolinhas de Gel", priceCents: 1500 },
+  embrulho: { title: "Embrulho de Presente de Natal", priceCents: 1000 },
+};
+
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -18,7 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const secret = process.env.HYPERCASH_SECRET_KEY;
   if (!secret) return res.status(500).json({ error: "Pagamento não configurado (HYPERCASH_SECRET_KEY ausente)." });
 
-  const { offerId, shipping, customer, address } = (req.body ?? {}) as any;
+  const { offerId, shipping, bumps, customer, address } = (req.body ?? {}) as any;
   const offer = OFFERS[offerId];
   if (!offer) return res.status(400).json({ error: "Oferta inválida." });
 
@@ -32,7 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const shippingFee = SHIPPING[shipping];
   if (shippingFee === undefined) return res.status(400).json({ error: "Escolha uma opção de frete." });
-  const amount = offer.priceCents + shippingFee;
+  const bumpIds: string[] = Array.isArray(bumps) ? [...new Set<string>(bumps.map(String))].filter((b) => b in BUMPS) : [];
+  const bumpItems = bumpIds.map((b) => ({ title: BUMPS[b].title, unitPrice: BUMPS[b].priceCents, quantity: 1, tangible: true, externalRef: `bump-${b}` }));
+  const amount = offer.priceCents + shippingFee + bumpItems.reduce((t, i) => t + i.unitPrice, 0);
   const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || "0.0.0.0";
   const site = (process.env.SITE_URL || `https://${req.headers.host}`).replace(/\/$/, "");
   const base = (process.env.HYPERCASH_API_URL || "https://api.hypercashbrasil.com.br").replace(/\/$/, "");
@@ -59,11 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         country: "br",
       },
     },
-    items: [{ title: offer.title, unitPrice: offer.priceCents, quantity: 1, tangible: true, externalRef: offerId }],
+    items: [{ title: offer.title, unitPrice: offer.priceCents, quantity: 1, tangible: true, externalRef: offerId }, ...bumpItems],
     traceable: true,
     ip,
     postbackUrl: `${site}/api/webhook`,
-    metadata: { offerId, shipping },
+    metadata: { offerId, shipping, bumps: bumpIds },
     pix: { expiresInDays: 1 },
   };
 

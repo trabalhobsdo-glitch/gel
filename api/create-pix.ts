@@ -1,4 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { isIP } from "node:net";
+
+// Mesmo gateway/endereço do site que já funciona (HyperCash só tem ambiente de produção).
+const BASE = "https://api.hypercashbrasil.com.br";
+// Aceita os dois nomes de variável (HYPER_SECRET_KEY é o usado nos seus outros sites).
+const getSecret = () => (process.env.HYPER_SECRET_KEY || process.env.HYPERCASH_SECRET_KEY || "").trim().replace(/^["']|["']$/g, "");
 
 // ⚠️ Preços ficam no SERVIDOR: o cliente só envia o id da oferta.
 // Mantenha em sincronia com src/config.ts
@@ -18,9 +24,26 @@ const BUMPS: Record<string, { title: string; priceCents: number }> = {
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const secret = getSecret();
+
+  // Diagnóstico: abra /api/create-pix?diag=1 no navegador. Nunca mostra a chave.
+  if (req.method === "GET" && req.query?.diag) {
+    const out: Record<string, unknown> = {
+      secretKeyConfigured: !!secret,
+      secretKeyLength: secret.length,
+      secretKeyLooksLikePublicKey: /^pk_/i.test(secret),
+    };
+    if (secret) {
+      try {
+        const r = await fetch(`${BASE}/api/user/wallet/balance`, { headers: { Authorization: "Basic " + Buffer.from(`x:${secret}`).toString("base64") } });
+        out.walletBalanceStatus = r.status; // 200 = chave OK | 401 = chave errada | 403 = sem permissão
+      } catch { out.walletBalanceStatus = "sem_conexao"; }
+    }
+    return res.status(200).json(out);
+  }
+
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
 
-  const secret = process.env.HYPERCASH_SECRET_KEY;
   if (!secret) return res.status(500).json({ error: "Pagamento não configurado (HYPERCASH_SECRET_KEY ausente)." });
 
   const { offerId, shipping, bumps, customer, address } = (req.body ?? {}) as any;
@@ -40,9 +63,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const bumpIds: string[] = Array.isArray(bumps) ? [...new Set<string>(bumps.map(String))].filter((b) => b in BUMPS) : [];
   const bumpItems = bumpIds.map((b) => ({ title: BUMPS[b].title, unitPrice: BUMPS[b].priceCents, quantity: 1, tangible: true, externalRef: `bump-${b}` }));
   const amount = offer.priceCents + shippingFee + bumpItems.reduce((t, i) => t + i.unitPrice, 0);
-  const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || "0.0.0.0";
-  const site = (process.env.SITE_URL || `https://${req.headers.host}`).replace(/\/$/, "");
-  const base = (process.env.HYPERCASH_API_URL || "https://api.hypercashbrasil.com.br").replace(/\/$/, "");
+  const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
+  const base = BASE;
 
   const payload = {
     amount,
@@ -58,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       address: {
         street: address.street,
         streetNumber: String(address.number),
-        complement: address.complement || "",
+        ...(address.complement ? { complement: String(address.complement) } : {}),
         zipCode: zip,
         neighborhood: address.neighborhood,
         city: address.city,
@@ -68,8 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
     items: [{ title: offer.title, unitPrice: offer.priceCents, quantity: 1, tangible: true, externalRef: offerId }, ...bumpItems],
     traceable: true,
-    ip,
-    postbackUrl: `${site}/api/webhook`,
+    ...(ip && isIP(ip) ? { ip } : {}),
     metadata: { offerId, shipping, bumps: bumpIds },
     pix: { expiresInDays: 1 },
   };

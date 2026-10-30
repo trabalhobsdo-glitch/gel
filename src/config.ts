@@ -26,3 +26,11 @@ export const SHIPPING: Record<ShippingId, { id: ShippingId; name: string; priceC
   pac: { id: "pac", name: "PAC", priceCents: 990, days: "6 a 8 dias" },
   sedex: { id: "sedex", name: "SEDEX", priceCents: 1850, days: "3 a 5 dias" },
 };
+
+// ⚠️ Os order bumps também existem em api/create-pix.ts (o servidor é quem manda no valor cobrado).
+export type BumpId = "bolinhas" | "embrulho";
+
+export const BUMPS: Record<BumpId, { id: BumpId; title: string; text: string; priceCents: number; img: string }> = {
+  bolinhas: { id: "bolinhas", title: "Leve também +15.000 bolinhas de gel", text: "Mais munição para a brincadeira durar mais.", priceCents: 1500, img: "/images/bump-bolinhas.webp" },
+  embrulho: { id: "embrulho", title: "Embrulho de presente de Natal", text: "Papel de presente natalino para entregar já embrulhado.", priceCents: 1000, img: "/images/bump-embrulho.webp" },
+};

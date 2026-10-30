@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { Link, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Container, LockIcon, Logo } from "../components/ui";
-import { OFFERS, SHIPPING, STORE, type OfferId, type ShippingId } from "../config";
+import { BUMPS, OFFERS, SHIPPING, STORE, type BumpId, type OfferId, type ShippingId } from "../config";
 import { brl, isValidCPF, maskCEP, maskCPF, maskPhone, onlyDigits } from "../lib/format";
 
 type PixData = { id: string; qrcode: string; expirationDate: string | null; amount: number };
@@ -25,7 +25,10 @@ export default function Checkout() {
   const [form, setForm] = useState(EMPTY);
   const [shipping, setShipping] = useState<ShippingId>("pac");
   const ship = SHIPPING[shipping];
-  const totalCents = offer.priceCents + ship.priceCents;
+  const [bumps, setBumps] = useState<BumpId[]>([]);
+  const bumpsCents = bumps.reduce((t, b) => t + BUMPS[b].priceCents, 0);
+  const totalCents = offer.priceCents + ship.priceCents + bumpsCents;
+  const toggleBump = (id: BumpId) => setBumps((b) => (b.includes(id) ? b.filter((x) => x !== id) : [...b, id]));
   const cepOk = onlyDigits(form.cep).length === 8;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -136,6 +139,7 @@ export default function Checkout() {
         body: JSON.stringify({
           offerId: current,
           shipping,
+          bumps,
           customer: { name: form.name, email: form.email, cpf: form.cpf, phone: form.phone },
           address: {
             cep: form.cep, street: form.street, number: form.number, complement: form.complement,
@@ -186,14 +190,15 @@ export default function Checkout() {
       </div>
       <dl className="mt-5 space-y-2 border-t border-line pt-4 text-sm">
         <div className="flex justify-between"><dt>Subtotal</dt><dd className="font-semibold">{brl(offer.priceCents)}</dd></div>
+        {bumps.map((b) => <div key={b} className="flex justify-between"><dt>{BUMPS[b].title.replace("Leve também ", "")}</dt><dd className="font-semibold">{brl(BUMPS[b].priceCents)}</dd></div>)}
         {cepOk
           ? <div className="flex justify-between"><dt>Frete ({ship.name})</dt><dd className="font-semibold">{brl(ship.priceCents)}</dd></div>
           : <div className="flex justify-between text-ink/60"><dt>Frete</dt><dd>informe o CEP</dd></div>}
-        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(cepOk ? totalCents : offer.priceCents)}</dd></div>
+        <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(cepOk ? totalCents : offer.priceCents + bumpsCents)}</dd></div>
       </dl>
       <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela HyperCash. Frete e prazo conforme informado na compra.</span></p>
     </aside>
-  ), [offer, ship, totalCents, cepOk]);
+  ), [offer, ship, totalCents, cepOk, bumps, bumpsCents]);
 
   return (
     <div className="min-h-screen bg-mint">
@@ -324,6 +329,7 @@ export default function Checkout() {
               )}
 
               {stage === 3 && (
+                <>
                 <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
                   <h2 className="font-bold text-2xl text-forest">Pagamento</h2>
                   <p className="mt-1 text-sm text-ink/60">Confira os dados e pague com PIX. O QR Code é gerado na próxima tela.</p>
@@ -347,6 +353,28 @@ export default function Checkout() {
                   </div>
                   <p className="mt-4 flex items-center gap-2 rounded-md bg-mint p-3 text-sm font-semibold text-forest"><span aria-hidden>⚡</span> Pagamento por PIX: aprovação na hora.</p>
                 </section>
+
+                  <section className="rounded-lg border-2 border-dashed border-brand bg-white p-5 shadow-sm sm:p-7">
+                    <h2 className="font-bold text-2xl text-forest">Aproveite e leve também</h2>
+                    <p className="mt-1 text-sm text-ink/60">Marque para adicionar ao seu pedido.</p>
+                    <div className="mt-4 space-y-3">
+                      {Object.values(BUMPS).map((b) => {
+                        const on = bumps.includes(b.id);
+                        return (
+                          <label key={b.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition sm:gap-4 sm:p-4 ${on ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
+                            <input type="checkbox" checked={on} onChange={() => toggleBump(b.id)} className="h-5 w-5 shrink-0 accent-brand" />
+                            <img src={b.img} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded border border-line bg-white object-contain" />
+                            <span className="flex-1 text-sm">
+                              <span className="block font-bold text-forest">{b.title}</span>
+                              <span className="block text-ink/60">{b.text}</span>
+                            </span>
+                            <span className="font-bold text-lg text-brand-dark">+ {brl(b.priceCents)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </>
               )}
 
               {apiError && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-700">{apiError}</p>}

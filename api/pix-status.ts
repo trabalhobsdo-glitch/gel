@@ -1,12 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const secret = process.env.HYPERCASH_SECRET_KEY;
+  const secret = (process.env.HYPER_SECRET_KEY || process.env.HYPERCASH_SECRET_KEY || "").trim().replace(/^["']|["']$/g, "");
   const id = String(req.query.id ?? "");
   if (!secret) return res.status(500).json({ error: "Pagamento não configurado." });
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(id)) return res.status(400).json({ error: "ID inválido." });
 
-  const base = (process.env.HYPERCASH_API_URL || "https://api.hypercashbrasil.com.br").replace(/\/$/, "");
+  const base = "https://api.hypercashbrasil.com.br";
   try {
     const r = await fetch(`${base}/api/user/transactions/${id}`, {
       headers: { Authorization: "Basic " + Buffer.from(`x:${secret}`).toString("base64") },

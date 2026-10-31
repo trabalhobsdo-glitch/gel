@@ -12,12 +12,12 @@ export const STORE = {
 export type OfferId = "unitario" | "kit-duplo";
 
 export const OFFERS: Record<OfferId, { id: OfferId; name: string; short: string; priceCents: number; qty: number }> = {
-  unitario: { id: "unitario", name: "Super M4 Blaster Elétrica de Gel", short: "1 unidade", priceCents: 7990, qty: 1 },
-  "kit-duplo": { id: "kit-duplo", name: "Kit com 2 Super M4 Blaster", short: "Kit com 2", priceCents: 12790, qty: 2 },
+  unitario: { id: "unitario", name: "Super M4 Blaster Elétrica de Gel", short: "1 unidade", priceCents: 4990, qty: 1 },
+  "kit-duplo": { id: "kit-duplo", name: "Kit com 2 Super M4 Blaster", short: "Kit com 2", priceCents: 9790, qty: 2 },
 };
 
-export const savingsCents = OFFERS.unitario.priceCents * 2 - OFFERS["kit-duplo"].priceCents; // 3190
-export const kitUnitCents = OFFERS["kit-duplo"].priceCents / 2; // 6395
+export const savingsCents = OFFERS.unitario.priceCents * 2 - OFFERS["kit-duplo"].priceCents; // 200
+export const kitUnitCents = OFFERS["kit-duplo"].priceCents / 2; // 4895
 
 // ⚠️ Os fretes também existem em api/create-pix.ts (o servidor é quem manda no valor cobrado).
 export type ShippingId = "pac" | "sedex";

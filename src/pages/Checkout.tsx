@@ -216,7 +216,7 @@ export default function Checkout() {
           : <div className="flex justify-between text-ink/60"><dt>Frete</dt><dd>informe o CEP</dd></div>}
         <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(cepOk ? totalCents : offer.priceCents + bumpsCents)}</dd></div>
       </dl>
-      <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela HyperCash. Frete e prazo conforme informado na compra.</span></p>
+      <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela Pagou. Frete e prazo conforme informado na compra.</span></p>
     </aside>
   ), [offer, ship, totalCents, cepOk, bumps, bumpsCents]);
 

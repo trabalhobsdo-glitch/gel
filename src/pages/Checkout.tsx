@@ -51,6 +51,31 @@ export default function Checkout() {
     setErrors((er) => ({ ...er, [k]: "" }));
   };
 
+  // Meta Pixel: início do checkout
+  useEffect(() => {
+    (window as any).fbq?.("track", "InitiateCheckout", {
+      content_name: offer.name,
+      content_type: "product",
+      num_items: offer.qty,
+      value: offer.priceCents / 100,
+      currency: "BRL",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current]);
+
+  // Meta Pixel: compra finalizada (PIX pago)
+  useEffect(() => {
+    if (step !== "paid") return;
+    (window as any).fbq?.("track", "Purchase", {
+      content_name: offer.name,
+      content_type: "product",
+      num_items: offer.qty,
+      value: (pix?.amount ?? totalCents) / 100,
+      currency: "BRL",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // Preenche o endereço automaticamente pelo CEP (ViaCEP)
   useEffect(() => {
     const cep = onlyDigits(form.cep);

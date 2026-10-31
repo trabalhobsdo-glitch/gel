@@ -63,19 +63,6 @@ export default function Checkout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
-  // Meta Pixel: compra finalizada (PIX pago)
-  useEffect(() => {
-    if (step !== "paid") return;
-    (window as any).fbq?.("track", "Purchase", {
-      content_name: offer.name,
-      content_type: "product",
-      num_items: offer.qty,
-      value: (pix?.amount ?? totalCents) / 100,
-      currency: "BRL",
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
-
   // Preenche o endereço automaticamente pelo CEP (ViaCEP)
   useEffect(() => {
     const cep = onlyDigits(form.cep);
@@ -176,6 +163,14 @@ export default function Checkout() {
       if (!r.ok) throw new Error(data?.error || "Não foi possível gerar o PIX.");
       setPix(data);
       setStep("pix");
+      // Meta Pixel: venda marcada assim que o PIX é gerado
+      (window as any).fbq?.("track", "Purchase", {
+        content_name: offer.name,
+        content_type: "product",
+        num_items: offer.qty,
+        value: (data?.amount ?? totalCents) / 100,
+        currency: "BRL",
+      });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setApiError(e instanceof Error ? e.message : "Erro inesperado. Tente novamente.");

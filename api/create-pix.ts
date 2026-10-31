@@ -9,8 +9,8 @@ const getSecret = () => (process.env.HYPER_SECRET_KEY || process.env.HYPERCASH_S
 // ⚠️ Preços ficam no SERVIDOR: o cliente só envia o id da oferta.
 // Mantenha em sincronia com src/config.ts
 const OFFERS: Record<string, { title: string; priceCents: number }> = {
-  unitario: { title: "Super M4 Blaster Elétrica de Gel", priceCents: 7990 },
-  "kit-duplo": { title: "Kit com 2 Super M4 Blaster Elétrica de Gel", priceCents: 12790 },
+  unitario: { title: "Super M4 Blaster Elétrica de Gel", priceCents: 4990 },
+  "kit-duplo": { title: "Kit com 2 Super M4 Blaster Elétrica de Gel", priceCents: 9790 },
 };
 
 // Mantenha em sincronia com src/config.ts

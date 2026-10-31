@@ -1,10 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { isIP } from "node:net";
+import { randomUUID } from "node:crypto";
 
-// Mesmo gateway/endereço do site que já funciona (HyperCash só tem ambiente de produção).
-const BASE = "https://api.hypercashbrasil.com.br";
-// Aceita os dois nomes de variável (HYPER_SECRET_KEY é o usado nos seus outros sites).
-const getSecret = () => (process.env.HYPER_SECRET_KEY || process.env.HYPERCASH_SECRET_KEY || "").trim().replace(/^["']|["']$/g, "");
+// Gateway: Pagou (API v2). Docs: https://developer.pagou.ai
+// Variáveis de ambiente na Vercel:
+//   PAGOU_API_KEY  -> token de API de PRODUÇÃO (obrigatória)
+//   PAGOU_ENV      -> opcional: "sandbox" para testar com o token de sandbox
+const getBase = () => (String(process.env.PAGOU_ENV ?? "").trim().toLowerCase() === "sandbox" ? "https://api.sandbox.pagou.ai" : "https://api.pagou.ai");
+const getToken = () => (process.env.PAGOU_API_KEY || process.env.PAGOU_TOKEN || process.env.PAGOU_SECRET_KEY || "").trim().replace(/^[\"']|[\"']$/g, "");
 
 // ⚠️ Preços ficam no SERVIDOR: o cliente só envia o id da oferta.
 // Mantenha em sincronia com src/config.ts
@@ -14,7 +17,10 @@ const OFFERS: Record<string, { title: string; priceCents: number }> = {
 };
 
 // Mantenha em sincronia com src/config.ts
-const SHIPPING: Record<string, number> = { pac: 990, sedex: 1850 };
+const SHIPPING: Record<string, { name: string; priceCents: number }> = {
+  pac: { name: "Frete PAC", priceCents: 990 },
+  sedex: { name: "Frete SEDEX", priceCents: 1850 },
+};
 
 const BUMPS: Record<string, { title: string; priceCents: number }> = {
   bolinhas: { title: "15.000 Bolinhas de Gel", priceCents: 1500 },
@@ -24,27 +30,30 @@ const BUMPS: Record<string, { title: string; priceCents: number }> = {
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const secret = getSecret();
+  const token = getToken();
+  const base = getBase();
+  const auth = { Authorization: `Bearer ${token}` };
 
   // Diagnóstico: abra /api/create-pix?diag=1 no navegador. Nunca mostra a chave.
   if (req.method === "GET" && req.query?.diag) {
     const out: Record<string, unknown> = {
-      secretKeyConfigured: !!secret,
-      secretKeyLength: secret.length,
-      secretKeyLooksLikePublicKey: /^pk_/i.test(secret),
+      gateway: "pagou",
+      ambiente: base.includes("sandbox") ? "sandbox" : "producao",
+      tokenConfigured: !!token,
+      tokenLength: token.length,
     };
-    if (secret) {
+    if (token) {
       try {
-        const r = await fetch(`${BASE}/api/user/wallet/balance`, { headers: { Authorization: "Basic " + Buffer.from(`x:${secret}`).toString("base64") } });
-        out.walletBalanceStatus = r.status; // 200 = chave OK | 401 = chave errada | 403 = sem permissão
-      } catch { out.walletBalanceStatus = "sem_conexao"; }
+        const r = await fetch(`${base}/v2/transactions?limit=1`, { headers: auth });
+        out.authStatus = r.status; // 200 = chave OK | 401 = chave errada ou de outro ambiente
+      } catch { out.authStatus = "sem_conexao"; }
     }
     return res.status(200).json(out);
   }
 
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
 
-  if (!secret) return res.status(500).json({ error: "Pagamento não configurado (HYPERCASH_SECRET_KEY ausente)." });
+  if (!token) return res.status(500).json({ error: "Pagamento não configurado (PAGOU_API_KEY ausente)." });
 
   const { offerId, shipping, bumps, customer, address } = (req.body ?? {}) as any;
   const offer = OFFERS[offerId];
@@ -58,69 +67,83 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Preencha todos os dados obrigatórios." });
   }
 
-  const shippingFee = SHIPPING[shipping];
-  if (shippingFee === undefined) return res.status(400).json({ error: "Escolha uma opção de frete." });
+  const ship = SHIPPING[shipping];
+  if (!ship) return res.status(400).json({ error: "Escolha uma opção de frete." });
   const bumpIds: string[] = Array.isArray(bumps) ? [...new Set<string>(bumps.map(String))].filter((b) => b in BUMPS) : [];
-  const bumpItems = bumpIds.map((b) => ({ title: BUMPS[b].title, unitPrice: BUMPS[b].priceCents, quantity: 1, tangible: true, externalRef: `bump-${b}` }));
-  const amount = offer.priceCents + shippingFee + bumpItems.reduce((t, i) => t + i.unitPrice, 0);
+
+  // Na Pagou o valor total é a soma dos itens; o frete entra como um item físico.
+  const products = [
+    { name: offer.title, price: offer.priceCents, quantity: 1, tangible: true, sku: offerId },
+    ...bumpIds.map((b) => ({ name: BUMPS[b].title, price: BUMPS[b].priceCents, quantity: 1, tangible: true, sku: `bump-${b}` })),
+    { name: ship.name, price: ship.priceCents, quantity: 1, tangible: false, sku: `frete-${shipping}` },
+  ];
+  const amount = products.reduce((t, p) => t + p.price * p.quantity, 0);
+
   const ip = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
-  const base = BASE;
+  const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0].trim();
+  const notifyUrl = host && !/localhost|127\.0\.0\.1/.test(host) ? `https://${host}/api/webhook` : undefined;
 
   const payload = {
+    external_ref: `gel-${randomUUID()}`, // identificador único do pedido (a Pagou recusa repetidos)
     amount,
-    paymentMethod: "PIX",
-    customer: {
+    currency: "BRL",
+    method: "pix",
+    ...(notifyUrl ? { notify_url: notifyUrl } : {}),
+    buyer: {
       name: String(customer.name).trim(),
       email: String(customer.email).trim(),
-      document: { number: cpf, type: "CPF" },
-      phone,
-    },
-    shipping: {
-      fee: shippingFee,
+      phone: phone.startsWith("55") && phone.length > 11 ? `+${phone}` : `+55${phone}`,
+      document: { type: "CPF", number: cpf },
       address: {
-        street: address.street,
-        streetNumber: String(address.number),
+        street: String(address.street),
+        number: String(address.number),
         ...(address.complement ? { complement: String(address.complement) } : {}),
-        zipCode: zip,
-        neighborhood: address.neighborhood,
-        city: address.city,
+        neighborhood: String(address.neighborhood),
+        city: String(address.city),
         state: String(address.state).toUpperCase(),
-        country: "br",
+        zipCode: zip,
+        country: "BR",
       },
     },
-    items: [{ title: offer.title, unitPrice: offer.priceCents, quantity: 1, tangible: true, externalRef: offerId }, ...bumpItems],
+    products,
     traceable: true,
-    ...(ip && isIP(ip) ? { ip } : {}),
-    metadata: { offerId, shipping, bumps: bumpIds },
-    pix: { expiresInDays: 1 },
+    ...(ip && isIP(ip) ? { ip_address: ip } : {}),
+    informations: [
+      { key: "oferta", value: String(offerId) },
+      { key: "frete", value: String(shipping) },
+      ...(bumpIds.length ? [{ key: "adicionais", value: bumpIds.join(",") }] : []),
+    ],
   };
 
   try {
-    const r = await fetch(`${base}/api/user/transactions`, {
+    const r = await fetch(`${base}/v2/transactions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Basic " + Buffer.from(`x:${secret}`).toString("base64"),
-      },
+      headers: { "Content-Type": "application/json", ...auth },
       body: JSON.stringify(payload),
     });
     const json: any = await r.json().catch(() => ({}));
     if (!r.ok) {
-      console.error("HyperCash error", r.status, JSON.stringify(json));
-      return res.status(502).json({ error: json?.message || "Não foi possível gerar o PIX. Tente novamente." });
+      console.error("Pagou error", r.status, JSON.stringify(json));
+      const first = Array.isArray(json?.errors) && json.errors[0] ? `${json.errors[0].field ?? ""}: ${json.errors[0].message ?? ""}`.trim() : "";
+      const msg = r.status === 401 || r.status === 403
+        ? "Pagamento temporariamente indisponível. Tente novamente em instantes."
+        : r.status === 422
+          ? `Confira os dados informados${first ? ` (${first})` : ""}.`
+          : json?.detail || json?.message || "Não foi possível gerar o PIX. Tente novamente.";
+      return res.status(502).json({ error: msg });
     }
     const tx = json?.data ?? json;
-    const qrcode = tx?.pix?.qrcode;
+    const qrcode = tx?.pix?.qr_code;
     if (!tx?.id || !qrcode) {
-      console.error("Resposta inesperada da HyperCash", JSON.stringify(json));
+      console.error("Resposta inesperada da Pagou", JSON.stringify(json));
       return res.status(502).json({ error: "Resposta inesperada do gateway de pagamento." });
     }
     return res.status(200).json({
       id: tx.id,
       qrcode,
-      expirationDate: tx.pix?.expirationDate ?? null,
+      expirationDate: tx.pix?.expiration_date ?? null,
       amount: tx.amount ?? amount,
-      status: String(tx.status ?? "waiting_payment").toLowerCase(),
+      status: String(tx.status ?? "pending").toLowerCase(),
     });
   } catch (e) {
     console.error(e);

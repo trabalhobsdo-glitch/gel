@@ -121,6 +121,15 @@ function Section({ children, id, className = "" }: { children: React.ReactNode; 
 
 export default function Home() {
   const [offersVisible, setOffersVisible] = useState(false);
+  // Meta Pixel: visualização do produto
+  useEffect(() => {
+    (window as any).fbq?.("track", "ViewContent", {
+      content_name: OFFERS.unitario.name,
+      content_type: "product",
+      value: OFFERS.unitario.priceCents / 100,
+      currency: "BRL",
+    });
+  }, []);
   useEffect(() => {
     const el = document.getElementById("ofertas");
     if (!el) return;

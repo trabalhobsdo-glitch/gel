@@ -323,6 +323,7 @@ export default function Home() {
             <Link to="/legal/privacidade" className="hover:text-ink">Política de privacidade</Link>
             <Link to="/legal/termos" className="hover:text-ink">Termos de compra</Link>
             <Link to="/legal/trocas" className="hover:text-ink">Troca e devolução</Link>
+            <Link to="/legal/suporte" className="hover:text-ink">Suporte e atendimento</Link>
           </nav>
         </Container>
         <Container className="mt-6 border-t border-line pt-5 text-xs text-ink/50">

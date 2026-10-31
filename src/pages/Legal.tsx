@@ -41,7 +41,7 @@ const PAGES: Record<string, Page> = {
         h: "3. Com quem compartilhamos",
         p: ["Compartilhamos apenas o necessário para a compra acontecer:"],
         ul: [
-          "Processadora de pagamentos (HyperCash), para gerar e confirmar o PIX.",
+          "Processadora de pagamentos (Pagou), para gerar e confirmar o PIX.",
           "Transportadoras e Correios, para a entrega do pedido.",
           "Ferramentas de análise e anúncios (como o Meta Pixel), para medir visitas e conversões.",
           "Autoridades públicas, quando houver obrigação legal ou ordem judicial.",

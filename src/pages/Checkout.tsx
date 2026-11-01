@@ -6,7 +6,26 @@ import { BUMPS, OFFERS, SHIPPING, STORE, type BumpId, type OfferId, type Shippin
 import { brl, isValidCPF, maskCEP, maskCPF, maskPhone, onlyDigits } from "../lib/format";
 
 type PixData = { id: string; qrcode: string; expirationDate: string | null; amount: number };
-type Step = "form" | "pix" | "paid" | "failed";
+type Step = "form" | "pix" | "cardwait" | "paid" | "failed";
+type Method = "pix" | "card";
+type CardCfg = { enabled: boolean; publishableKey: string | null; sandbox: boolean };
+
+// Carrega o formulário seguro de cartão da Pagou (uma vez só)
+let pagouLoader: Promise<any> | null = null;
+function loadPagou(): Promise<any> {
+  if ((window as any).Pagou) return Promise.resolve((window as any).Pagou);
+  if (!pagouLoader) {
+    pagouLoader = new Promise((resolve, reject) => {
+      const sc = document.createElement("script");
+      sc.src = "https://js.pagou.ai/payments/v3.js?v=3.0.0";
+      sc.async = true;
+      sc.onload = () => ((window as any).Pagou ? resolve((window as any).Pagou) : reject(new Error("Pagou indisponível")));
+      sc.onerror = () => { pagouLoader = null; reject(new Error("Falha ao carregar")); };
+      document.head.appendChild(sc);
+    });
+  }
+  return pagouLoader;
+}
 
 const input =
   "w-full rounded-md border border-line bg-white px-4 py-3 text-base outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/20";
@@ -40,6 +59,14 @@ export default function Checkout() {
   const [qrImg, setQrImg] = useState("");
   const [copied, setCopied] = useState(false);
   const numberRef = useRef<HTMLInputElement>(null);
+  const [method, setMethod] = useState<Method>("pix");
+  const [cardCfg, setCardCfg] = useState<CardCfg | null>(null);
+  const [cardReady, setCardReady] = useState(false);
+  const [cardMsg, setCardMsg] = useState("");
+  const [waitId, setWaitId] = useState("");
+  const [paidAmount, setPaidAmount] = useState<number | null>(null);
+  const [paidWith, setPaidWith] = useState<Method>("pix");
+  const elementsRef = useRef<any>(null);
 
   const set = (k: keyof typeof EMPTY) => (e: ChangeEvent<HTMLInputElement>) => {
     let v = e.target.value;
@@ -57,6 +84,13 @@ export default function Checkout() {
       content_name: offer.name,
       content_type: "product",
       num_items: offer.qty,
+      value: offer.priceCents / 100,
+      currency: "BRL",
+    });
+    // TikTok Pixel: início do checkout
+    (window as any).ttq?.track("InitiateCheckout", {
+      content_type: "product",
+      contents: [{ content_id: current, content_name: offer.name, quantity: 1, price: offer.priceCents / 100 }],
       value: offer.priceCents / 100,
       currency: "BRL",
     });
@@ -87,19 +121,58 @@ export default function Checkout() {
     QRCode.toDataURL(pix.qrcode, { width: 280, margin: 1 }).then(setQrImg).catch(() => setQrImg(""));
   }, [pix]);
 
-  // Consulta o status do pagamento a cada 5s
+  // Descobre se o cartão está disponível (precisa da chave pública da Pagou configurada na Vercel)
   useEffect(() => {
-    if (step !== "pix" || !pix) return;
+    fetch("/api/create-card")
+      .then((r) => r.json())
+      .then((c) => setCardCfg(c?.enabled && c?.publishableKey ? c : null))
+      .catch(() => setCardCfg(null));
+  }, []);
+
+  // Monta o formulário seguro do cartão quando a pessoa escolhe "Cartão" na etapa de pagamento
+  useEffect(() => {
+    if (step !== "form" || stage !== 3 || method !== "card" || !cardCfg) return;
+    let cancelled = false;
+    let cardEl: any = null;
+    setCardReady(false);
+    setCardMsg("");
+    loadPagou()
+      .then((Pagou) => {
+        if (cancelled) return;
+        if (cardCfg.sandbox) Pagou.setEnvironment("sandbox");
+        let els: any;
+        try { els = Pagou.elements({ publicKey: cardCfg.publishableKey, locale: "pt-BR" }); }
+        catch { els = Pagou.elements({ publicKey: cardCfg.publishableKey }); }
+        cardEl = els.create("card", { theme: "default" });
+        cardEl.mount("#card-element");
+        cardEl.on?.("change", (ev: any) => setCardMsg(ev?.errors?.length ? String(ev.errors[0].message ?? "") : ""));
+        elementsRef.current = els;
+        setCardReady(true);
+      })
+      .catch(() => { if (!cancelled) setCardMsg("Não foi possível carregar o formulário do cartão. Tente novamente ou pague com PIX."); });
+    return () => {
+      cancelled = true;
+      try { (cardEl?.unmount ?? cardEl?.destroy)?.call(cardEl); } catch { /* ignora */ }
+      elementsRef.current = null;
+    };
+  }, [step, stage, method, cardCfg]);
+
+  // Consulta o status do pagamento a cada 5s (PIX ou cartão em análise)
+  useEffect(() => {
+    if ((step !== "pix" && step !== "cardwait") || !waitId) return;
     const t = setInterval(async () => {
       try {
-        const r = await fetch(`/api/pix-status?id=${encodeURIComponent(pix.id)}`);
+        const r = await fetch(`/api/pix-status?id=${encodeURIComponent(waitId)}${step === "pix" ? "&m=pix" : ""}`);
         const { status } = await r.json();
-        if (status === "paid" || status === "authorized") setStep("paid");
-        else if (["refused", "canceled", "cancelled", "expired"].includes(status)) setStep("failed");
+        if (status === "paid" || status === "captured" || (step === "pix" && status === "authorized")) {
+          if (step === "cardwait") trackPurchase(paidAmount ?? totalCents);
+          setStep("paid");
+        } else if (["refused", "canceled", "cancelled", "expired"].includes(status)) setStep("failed");
       } catch { /* tenta de novo no próximo ciclo */ }
     }, 5000);
     return () => clearInterval(t);
-  }, [step, pix]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, waitId]);
 
   const STAGE_KEYS: Record<1 | 2, string[]> = {
     1: ["cep", "street", "number", "neighborhood", "city", "state"],
@@ -130,6 +203,80 @@ export default function Checkout() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const trackPurchase = (cents: number) => {
+    (window as any).fbq?.("track", "Purchase", {
+      content_name: offer.name,
+      content_type: "product",
+      num_items: offer.qty,
+      value: cents / 100,
+      currency: "BRL",
+    });
+    // TikTok Pixel: venda (CompletePayment é o evento de compra do TikTok)
+    (window as any).ttq?.track("CompletePayment", {
+      content_type: "product",
+      contents: [{ content_id: current, content_name: offer.name, quantity: 1, price: cents / 100 }],
+      value: cents / 100,
+      currency: "BRL",
+    });
+  };
+
+  const orderBody = () => ({
+    offerId: current,
+    shipping,
+    bumps,
+    customer: { name: form.name, email: form.email, cpf: form.cpf, phone: form.phone },
+    address: {
+      cep: form.cep, street: form.street, number: form.number, complement: form.complement,
+      neighborhood: form.neighborhood, city: form.city, state: form.state,
+    },
+  });
+
+  async function payCard() {
+    const els = elementsRef.current;
+    if (!els || !cardReady) { setApiError("O formulário do cartão ainda está carregando. Aguarde um instante."); return; }
+    setLoading(true);
+    let txId = "";
+    let txAmount: number | null = null;
+    try {
+      const result = await els.submit({
+        mode: "payment",
+        createTransaction: async (tokenData: any) => {
+          const r = await fetch("/api/create-card", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...orderBody(), token: tokenData?.token }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j?.error || "Não foi possível processar o cartão.");
+          txId = j?.data?.id ?? "";
+          txAmount = typeof j?.amount === "number" ? j.amount : null;
+          return j.data ?? j;
+        },
+      });
+      const st = String(result?.status ?? "").toLowerCase();
+      const id = String(result?.id ?? txId);
+      setPaidWith("card");
+      setPaidAmount(txAmount ?? totalCents);
+      if (["paid", "captured", "succeeded", "completed"].includes(st)) {
+        trackPurchase(txAmount ?? totalCents);
+        setStep("paid");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (["authorized", "processing", "pending", "processed"].includes(st) && id) {
+        setWaitId(id);
+        setStep("cardwait");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (st === "canceled" || st === "cancelled") {
+        setApiError("Pagamento cancelado. Você pode tentar de novo.");
+      } else {
+        setApiError("Cartão não aprovado. Confira os dados, tente outro cartão ou pague com PIX.");
+      }
+    } catch (e) {
+      setApiError(e instanceof Error && e.message ? e.message : "Cartão não aprovado. Tente outro cartão ou pague com PIX.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
     setApiError("");
@@ -143,34 +290,23 @@ export default function Checkout() {
     }
     if (!validate(1)) return goStage(1);
     if (!validate(2)) return goStage(2);
+    if (method === "card") return payCard();
     setLoading(true);
     try {
       const r = await fetch("/api/create-pix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          offerId: current,
-          shipping,
-          bumps,
-          customer: { name: form.name, email: form.email, cpf: form.cpf, phone: form.phone },
-          address: {
-            cep: form.cep, street: form.street, number: form.number, complement: form.complement,
-            neighborhood: form.neighborhood, city: form.city, state: form.state,
-          },
-        }),
+        body: JSON.stringify(orderBody()),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data?.error || "Não foi possível gerar o PIX.");
       setPix(data);
+      setWaitId(data.id);
+      setPaidWith("pix");
+      setPaidAmount(data?.amount ?? totalCents);
       setStep("pix");
-      // Meta Pixel: venda marcada assim que o PIX é gerado
-      (window as any).fbq?.("track", "Purchase", {
-        content_name: offer.name,
-        content_type: "product",
-        num_items: offer.qty,
-        value: (data?.amount ?? totalCents) / 100,
-        currency: "BRL",
-      });
+      // Pixels (Meta e TikTok): venda marcada assim que o PIX é gerado
+      trackPurchase(data?.amount ?? totalCents);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setApiError(e instanceof Error ? e.message : "Erro inesperado. Tente novamente.");
@@ -216,7 +352,7 @@ export default function Checkout() {
           : <div className="flex justify-between text-ink/60"><dt>Frete</dt><dd>informe o CEP</dd></div>}
         <div className="flex justify-between text-lg font-extrabold text-forest"><dt>Total</dt><dd>{brl(cepOk ? totalCents : offer.priceCents + bumpsCents)}</dd></div>
       </dl>
-      <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento por PIX processado pela Pagou. Frete e prazo conforme informado na compra.</span></p>
+      <p className="mt-4 flex gap-2 rounded-md bg-mint p-3 text-xs text-ink/70"><LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Pagamento processado pela Pagou. Frete e prazo conforme informado na compra.</span></p>
     </aside>
   ), [offer, ship, totalCents, cepOk, bumps, bumpsCents]);
 
@@ -234,7 +370,7 @@ export default function Checkout() {
           <div className="mx-auto max-w-lg rounded-lg bg-white p-8 text-center shadow-sm">
             <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-brand text-4xl text-white">✓</div>
             <h1 className="mt-5 font-bold text-4xl text-forest">Pagamento confirmado!</h1>
-            <p className="mt-3 text-ink/75">Recebemos o seu PIX de <b>{brl(pix?.amount ?? totalCents)}</b>. Em breve você receberá as informações do pedido no e-mail <b>{form.email}</b>.</p>
+            <p className="mt-3 text-ink/75">Recebemos o seu {paidWith === "card" ? "pagamento no cartão" : "PIX"} de <b>{brl(paidAmount ?? pix?.amount ?? totalCents)}</b>. Em breve você receberá as informações do pedido no e-mail <b>{form.email}</b>.</p>
             {STORE.whatsapp && (
               <a href={`https://wa.me/${STORE.whatsapp}`} className="mt-5 inline-block font-bold text-brand underline" target="_blank" rel="noreferrer">Falar com o atendimento</a>
             )}
@@ -244,9 +380,17 @@ export default function Checkout() {
 
         {step === "failed" && (
           <div className="mx-auto max-w-lg rounded-lg bg-white p-8 text-center shadow-sm">
-            <h1 className="font-bold text-4xl text-forest">PIX expirado ou cancelado</h1>
-            <p className="mt-3 text-ink/75">Não identificamos o pagamento. Você pode gerar um novo PIX.</p>
-            <button onClick={() => { setStep("form"); setPix(null); setStage(3); }} className="mt-6 w-full rounded-md bg-brand py-3 font-extrabold text-white">Gerar novo PIX</button>
+            <h1 className="font-bold text-4xl text-forest">{paidWith === "card" ? "Pagamento não aprovado" : "PIX expirado ou cancelado"}</h1>
+            <p className="mt-3 text-ink/75">{paidWith === "card" ? "O cartão não foi aprovado. Você pode tentar outro cartão ou pagar com PIX." : "Não identificamos o pagamento. Você pode gerar um novo PIX."}</p>
+            <button onClick={() => { setStep("form"); setPix(null); setStage(3); }} className="mt-6 w-full rounded-md bg-brand py-3 font-extrabold text-white">{paidWith === "card" ? "Tentar novamente" : "Gerar novo PIX"}</button>
+          </div>
+        )}
+
+        {step === "cardwait" && (
+          <div className="mx-auto max-w-lg rounded-lg bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-line border-t-brand" />
+            <h1 className="mt-5 font-bold text-3xl text-forest">Confirmando seu pagamento…</h1>
+            <p className="mt-3 text-ink/75">Estamos aguardando a confirmação do seu cartão. Não feche esta página: ela atualiza sozinha.</p>
           </div>
         )}
 
@@ -352,7 +496,7 @@ export default function Checkout() {
                 <>
                 <section className="rounded-lg bg-white p-5 shadow-sm sm:p-7">
                   <h2 className="font-bold text-2xl text-forest">Pagamento</h2>
-                  <p className="mt-1 text-sm text-ink/60">Confira os dados e pague com PIX. O QR Code é gerado na próxima tela.</p>
+                  <p className="mt-1 text-sm text-ink/60">Confira os dados e escolha como pagar.</p>
                   <div className="mt-4 divide-y divide-line rounded-lg border border-line text-sm">
                     <div className="flex items-start justify-between gap-3 p-4">
                       <div>
@@ -371,7 +515,28 @@ export default function Checkout() {
                       <button type="button" onClick={() => goStage(2)} className="shrink-0 font-bold text-brand underline">Editar</button>
                     </div>
                   </div>
-                  <p className="mt-4 flex items-center gap-2 rounded-md bg-mint p-3 text-sm font-semibold text-forest"><span aria-hidden>⚡</span> Pagamento por PIX: aprovação na hora.</p>
+                  {cardCfg && (
+                    <div className="mt-4 grid grid-cols-2 gap-3" role="radiogroup" aria-label="Forma de pagamento">
+                      {([["pix", "PIX", "Aprovação na hora"], ["card", "Cartão de crédito", "À vista"]] as const).map(([id, name, sub]) => (
+                        <label key={id} className={`flex cursor-pointer flex-col rounded-lg border-2 p-3 transition ${method === id ? "border-brand bg-brand/10" : "border-line hover:border-brand/50"}`}>
+                          <input type="radio" name="method" value={id} checked={method === id} onChange={() => { setMethod(id); setApiError(""); }} className="sr-only" />
+                          <span className="font-bold text-forest">{name}</span>
+                          <span className="text-xs text-ink/60">{sub}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {method === "pix" || !cardCfg ? (
+                    <p className="mt-4 flex items-center gap-2 rounded-md bg-mint p-3 text-sm font-semibold text-forest"><span aria-hidden>⚡</span> Pagamento por PIX: aprovação na hora. O QR Code é gerado na próxima tela.</p>
+                  ) : (
+                    <div className="mt-4">
+                      <label className={label} htmlFor="card-element">Dados do cartão</label>
+                      <div id="card-element" className="min-h-[56px] rounded-md border border-line bg-white p-3" />
+                      {!cardReady && !cardMsg && <p className="mt-2 text-xs text-ink/55">Carregando formulário seguro…</p>}
+                      {cardMsg && <p className="mt-2 text-xs font-semibold text-red-600">{cardMsg}</p>}
+                      <p className="mt-2 flex items-center gap-1.5 text-xs text-ink/55"><LockIcon className="h-3.5 w-3.5" /> Os dados do cartão são protegidos pela Pagou e não passam pelo nosso servidor.</p>
+                    </div>
+                  )}
                 </section>
 
                   <section className="rounded-lg border-2 border-dashed border-brand bg-white p-5 shadow-sm sm:p-7">
@@ -405,7 +570,7 @@ export default function Checkout() {
                 )}
                 <button type="submit" disabled={loading}
                   className="flex-1 rounded-lg bg-brand py-4 text-lg font-extrabold tracking-wide text-white transition hover:bg-brand-dark disabled:opacity-60">
-                  {stage === 3 ? (loading ? "Gerando PIX…" : `Pagar ${brl(totalCents)} com PIX`) : "Continuar"}
+                  {stage === 3 ? (method === "card" && cardCfg ? (loading ? "Processando…" : `Pagar ${brl(totalCents)} no cartão`) : (loading ? "Gerando PIX…" : `Pagar ${brl(totalCents)} com PIX`)) : "Continuar"}
                 </button>
               </div>
               {stage === 3 && <p className="text-center text-xs text-ink/55">Ao continuar você concorda com os <Link to="/legal/termos" className="underline">termos de compra</Link>.</p>}

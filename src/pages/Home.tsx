@@ -129,6 +129,13 @@ export default function Home() {
       value: OFFERS.unitario.priceCents / 100,
       currency: "BRL",
     });
+    // TikTok Pixel: visualização do produto
+    (window as any).ttq?.track("ViewContent", {
+      content_type: "product",
+      contents: [{ content_id: "unitario", content_name: OFFERS.unitario.name, quantity: 1, price: OFFERS.unitario.priceCents / 100 }],
+      value: OFFERS.unitario.priceCents / 100,
+      currency: "BRL",
+    });
   }, []);
   useEffect(() => {
     const el = document.getElementById("ofertas");

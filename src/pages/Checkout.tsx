@@ -36,8 +36,28 @@ const EMPTY = {
   cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "",
 };
 
+// Cronômetro apenas visual: 10 minutos a partir da entrada do cliente na página.
+function CountdownTimer({ endAt }: { endAt: number }) {
+  const [left, setLeft] = useState(() => Math.max(0, endAt - Date.now()));
+  useEffect(() => {
+    const id = setInterval(() => setLeft(Math.max(0, endAt - Date.now())), 250);
+    return () => clearInterval(id);
+  }, [endAt]);
+  const totalSec = Math.ceil(left / 1000);
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return (
+    <div className="mx-auto mb-6 flex max-w-5xl items-center justify-center gap-3 rounded-lg bg-forest px-4 py-4 text-white shadow-sm" role="timer" aria-live="off">
+      <span className="text-sm font-bold sm:text-base">Você tem</span>
+      <span className="rounded-md bg-lime px-3 py-1 font-display text-3xl font-extrabold leading-none tabular-nums text-forest sm:text-4xl">{mm}:{ss}</span>
+      <span className="text-sm font-bold sm:text-base">para finalizar sua compra</span>
+    </div>
+  );
+}
+
 export default function Checkout() {
   const { offerId } = useParams();
+  const [timerEnd] = useState(() => Date.now() + 10 * 60 * 1000);
   const current: OfferId = offerId === "kit-duplo" ? "kit-duplo" : "unitario";
   const offer = OFFERS[current];
 
@@ -414,10 +434,7 @@ export default function Checkout() {
           </div>
         )}
 
-        {step === "form" && (
-          <img src="/images/checkout-banner.webp" alt="Blaster: diversão e aventura em cada tiro" width={1774} height={887}
-            className="mx-auto mb-6 block w-full max-w-5xl rounded-lg shadow-sm" />
-        )}
+        {step === "form" && <CountdownTimer endAt={timerEnd} />}
 
         {step === "form" && (
           <form onSubmit={onSubmit} noValidate className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_340px]">
